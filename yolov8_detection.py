@@ -341,7 +341,20 @@ for i, (text, color) in enumerate(legend_entries):
 out_path = "./output/final_result.png"
 cv2.imwrite(out_path, img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
 
+# ── Export Coordinates for Metashape ──────────────────────────────────────────
+csv_path = "./output/metashape_markers.csv"
+image_filename = os.path.basename(image_path)
+with open(csv_path, "w") as f:
+    # Metashape standard format for 2D Image Coordinates: marker_name, image_name, x, y
+    f.write("marker_label,image_name,x_pixel,y_pixel\n")
+    for idx, (obj, ratio) in enumerate(illegal_vehicles, 1):
+        bbox = obj.bbox
+        cx = int((bbox.minx + bbox.maxx) / 2)
+        cy = int((bbox.miny + bbox.maxy) / 2)
+        f.write(f"Illegal_Violation_{idx},{image_filename},{cx},{cy}\n")
+
 t_total = time.time() - t_start
 print(f"\nTotal processing time: {t_total:.1f}s")
 print(f"Saved to {out_path}")
 print(f"Debug red-line visualization: {debug_path}")
+print(f"Exported illegal vehicle coordinates to: {csv_path}")
