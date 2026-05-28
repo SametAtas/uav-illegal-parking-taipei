@@ -1,22 +1,31 @@
 import os
+import argparse
 import torch
 from ultralytics import YOLO
 
 def main():
+    parser = argparse.ArgumentParser(description="Train YOLOv8 on NTU CARPK Dataset")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
+    parser.add_argument("--device", type=str, default=None, help="Device to train on (e.g., cuda:0, cuda:1, cpu)")
+    parser.add_argument("--name", type=str, default="yolov8m_carpk", help="Name of the training run")
+    args = parser.parse_args()
+
     print("Initializing YOLOv8 training...")
     
-    # Check if CUDA (GPU) is available
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Detected training device: {device.upper()}")
+    # Device selection
+    if args.device:
+        device = args.device
+    else:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+    print(f"Training device: {device.upper()}")
     
-    if device == "cpu":
+    epochs = args.epochs
+    if device == "cpu" and epochs > 3:
         print("\n⚠️ WARNING: You are training on a CPU!")
         print("Training on 6,000+ images on a CPU could take days or weeks.")
         print("We are setting epochs=3 just to verify the pipeline works.")
         epochs = 3
-    else:
-        print("GPU detected! Training will be much faster.")
-        epochs = 50 # Adjust this higher (e.g., 50 or 100) for a fully trained production model
 
     # Load the pre-trained VisDrone model as our starting point
     model_path = "yolov8m-visdrone.pt"
@@ -30,16 +39,16 @@ def main():
     # Path to the dataset configuration file we just fixed
     dataset_yaml = "CARPK-1/extracted/CarPK/CarPK/CarPK.yaml"
 
-    print("\nStarting Training...")
+    print(f"\nStarting Training (epochs={epochs}, imgsz=1024, batch=2, device={device})...")
     # Start training
     results = model.train(
         data=dataset_yaml,
         epochs=epochs,
-        imgsz=640,
+        imgsz=1024,
         device=device,
-        batch=8, # Lower batch size to prevent out-of-memory errors
+        batch=2, # Lower batch size to prevent out-of-memory errors
         project="output/carpk_training",
-        name="yolov8m_carpk"
+        name=args.name
     )
     
     print("\nTraining Complete!")

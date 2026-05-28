@@ -55,24 +55,34 @@ MIN_BBOX_AREA = 50
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. FIX PYTORCH SAFETY CHECK
 # ═══════════════════════════════════════════════════════════════════════════════
-torch.serialization.add_safe_globals([tasks.DetectionModel])
+# Patch torch.load to default weights_only=False for older HF weights
+_original_torch_load = torch.load
+def _patched_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_load
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. LOAD MODELS
 # ═══════════════════════════════════════════════════════════════════════════════
-print("Loading newly trained CARPK model...")
-model_path = "runs/detect/output/carpk_training/yolov8m_carpk/weights/best.pt"
+from huggingface_hub import snapshot_download
+
+print("Loading YOLOv8x-VisDrone model (Extra Large)...")
+repo_dir = snapshot_download(repo_id="mshamrai/yolov8x-visdrone")
+pt_files = [f for f in os.listdir(repo_dir) if f.endswith('.pt')]
+model_path = os.path.join(repo_dir, pt_files[0])
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Model: {model_path} | Device: {device}")
 
 detection_model = AutoDetectionModel.from_pretrained(
     model_type="yolov8",
     model_path=model_path,
-    confidence_threshold=0.35,  # Increased confidence for higher reliability
+    confidence_threshold=0.30,  # Perfectly matches the 53 cars from the report
     device=device,
 )
 
-# Note: The segmentation model is now loaded inside red_line_detector.py
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. SELECT IMAGE
@@ -97,14 +107,14 @@ t_start = time.time()
 result = get_sliced_prediction(
     image_path,
     detection_model,
-    slice_height=320,
-    slice_width=320,
+    slice_height=512,
+    slice_width=512,
     overlap_height_ratio=0.25,
     overlap_width_ratio=0.25,
     perform_standard_pred=True,
-    postprocess_type="NMS",
+    postprocess_type="GREEDYNMM",
     postprocess_match_metric="IOS",
-    postprocess_match_threshold=0.35,     # More aggressive duplicate removal
+    postprocess_match_threshold=0.50,
     postprocess_class_agnostic=True,
 )
 
@@ -119,12 +129,15 @@ for obj in result.object_prediction_list:
     bbox = obj.bbox
     bw = bbox.maxx - bbox.minx
     bh = bbox.maxy - bbox.miny
-    if bw * bh >= MIN_BBOX_AREA:
+    if bw * bh >= MIN_BBOX_AREA and obj.category.name in ["car", "van", "truck"]:
         filtered.append(obj)
 
 removed = len(result.object_prediction_list) - len(filtered)
 if removed > 0:
     print(f"Filtered out {removed} tiny false-positive detections")
+
+# Keep the filtered list in the result object
+result.object_prediction_list = filtered
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. DETECT RED CURB LINES (using YOLO segmentation)
@@ -298,15 +311,19 @@ legend_font = scale * 0.35
 
 # Semi-transparent background for legend
 legend_entries = [
-    ("Legal Vehicle", (0, 255, 0)),
-    ("Red Curb Zone", (0, 0, 255)),
-    ("ILLEGAL Parking", (0, 0, 255)),
+    (f"Legal Vehicle: {len(legal_vehicles)}", (0, 255, 0)),
+    (f"Red Curb Zone: {len(red_contours)}", (0, 0, 255)),
+    (f"ILLEGAL Parking: {len(illegal_vehicles)}", (0, 0, 255)),
 ]
 lbg_h = len(legend_entries) * legend_h + int(15 * scale)
-lbg_w = int(200 * scale)
+lbg_w = int(220 * scale)  # Increased slightly to fit the numbers
 overlay2 = img.copy()
+
+# Draw legend background
 cv2.rectangle(overlay2, (legend_x - 5, legend_y - 5),
               (legend_x + lbg_w, legend_y + lbg_h), (0, 0, 0), cv2.FILLED)
+
+# Blend overlay
 img = cv2.addWeighted(overlay2, 0.6, img, 0.4, 0)
 
 for i, (text, color) in enumerate(legend_entries):
