@@ -50,7 +50,7 @@ VEHICLE_CLASSES = {"car", "van", "truck", "bus", "motor", "tricycle", "awning-tr
 ILLEGAL_OVERLAP_THRESHOLD = 0.08
 
 # Minimum bounding box area (pixels²) — reject tiny false-positive blips
-MIN_BBOX_AREA = 150
+MIN_BBOX_AREA = 50
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. FIX PYTORCH SAFETY CHECK
@@ -61,14 +61,14 @@ torch.serialization.add_safe_globals([tasks.DetectionModel])
 # 2. LOAD MODELS
 # ═══════════════════════════════════════════════════════════════════════════════
 print("Loading newly trained CARPK model...")
-model_path = "weights/yolov8m_carpk.pt"
+model_path = "runs/detect/output/carpk_training/yolov8m_carpk/weights/best.pt"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Model: {model_path} | Device: {device}")
 
 detection_model = AutoDetectionModel.from_pretrained(
     model_type="yolov8",
     model_path=model_path,
-    confidence_threshold=0.60,  # Increased confidence for higher reliability
+    confidence_threshold=0.35,  # Increased confidence for higher reliability
     device=device,
 )
 
@@ -97,14 +97,14 @@ t_start = time.time()
 result = get_sliced_prediction(
     image_path,
     detection_model,
-    slice_height=640,
-    slice_width=640,
-    overlap_height_ratio=0.20,
-    overlap_width_ratio=0.20,
+    slice_height=320,
+    slice_width=320,
+    overlap_height_ratio=0.25,
+    overlap_width_ratio=0.25,
     perform_standard_pred=True,
     postprocess_type="NMS",
     postprocess_match_metric="IOS",
-    postprocess_match_threshold=0.25,     # More aggressive duplicate removal
+    postprocess_match_threshold=0.35,     # More aggressive duplicate removal
     postprocess_class_agnostic=True,
 )
 
