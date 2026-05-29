@@ -1,6 +1,22 @@
+import os
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+_SEG_MODEL = None
+_SEG_MODEL_RESOLVED = False  # True once we've decided whether a model is available
+
+def _load_seg_model(model_path):
+    """Load and cache the red-line seg model. Returns None if the .pt is missing."""
+    global _SEG_MODEL, _SEG_MODEL_RESOLVED
+    if _SEG_MODEL_RESOLVED:
+        return _SEG_MODEL
+    _SEG_MODEL_RESOLVED = True
+    if not os.path.isfile(model_path):
+        print(f"  [Note] Seg weights not found at {model_path} — using HSV-only red-line detection.")
+        return None
+    _SEG_MODEL = YOLO(model_path)
+    return _SEG_MODEL
 
 def compute_overlap(car_bbox, red_mask):
     """
@@ -58,15 +74,15 @@ def detect_red_lines(image_bgr, model_path="runs/segment/runs/segment/red_line_s
     Uses YOLO as primary method, and HSV as fallback if YOLO finds nothing.
     Returns: binary mask (red_mask) and a list of contours.
     """
-    # Load model and run inference
-    seg_model = YOLO(model_path)
-    # Lowered confidence from 0.25 to 0.05 to detect more red line segments
+    seg_model = _load_seg_model(model_path)
+    if seg_model is None:
+        return detect_red_lines_hsv(image_bgr)
+
     seg_results = seg_model(image_bgr, conf=0.05, verbose=False)
-    
+
     h, w = image_bgr.shape[:2]
     red_mask = np.zeros((h, w), dtype=np.uint8)
 
-    # Convert segmentation coordinates into an OpenCV mask
     yolo_found = False
     if len(seg_results) > 0 and seg_results[0].masks is not None:
         for xy in seg_results[0].masks.xy:
@@ -74,12 +90,10 @@ def detect_red_lines(image_bgr, model_path="runs/segment/runs/segment/red_line_s
             cv2.fillPoly(red_mask, [polygon], 255)
         yolo_found = True
 
-    # If YOLO found red lines, use them
     if yolo_found:
         red_contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     else:
-        # Fallback to HSV-based detection
         print("  [Note] YOLO found no red lines, falling back to HSV color detection...")
         red_mask, red_contours = detect_red_lines_hsv(image_bgr)
-    
+
     return red_mask, red_contours
